@@ -2,6 +2,7 @@ from data_model import KeyValue  # 从data_model模块导入KeyValue类
 import json  # 导入JSON库，用于序列化和反序列化字典
 import threading  # 导入线程库，用于同步操作
 from typing import Optional  # 导入Optional类型，用于类型注解
+from typing import List  #List是Python的类型注解之一，用于指定一个列表，列表中的元素类型可以进一步指定。
 
 class MemTable:
     def __init__(self, threshold: int = 1000):
