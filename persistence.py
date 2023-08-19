@@ -1,21 +1,45 @@
-import pickle  # 导入pickle库，用于对象的序列化和反序列化
-from table import MemTable  # 导入MemTable类
+# 导入pickle库，用于序列化和反序列化Python对象
+import pickle
+# 导入os库，用于操作文件和目录
+import os
+# 从表模块导入MemTable类
+from table import MemTable
+# 从数据模型模块导入KeyValue类
+from data_model import KeyValue
 
-class Persistence:
-    def __init__(self, log_file_path: str):
-        self.log_file_path = log_file_path  # 设置日志文件的路径
+# 定义持久化管理器类
+class PersistenceManager:
+    def __init__(self, wal_file: str = "wal.log"):
+        """初始化持久化管理器，设置WAL文件路径。"""
+        self.wal_file = wal_file
+        self._init_wal_file()
 
-    def persist_memtable(self, memtable: MemTable):
-        # 序列化MemTable的key-value对并写入WAL（写前日志）
-        with open(self.log_file_path, 'wb') as file:  # 以二进制写入模式打开文件
-            serialized_data = pickle.dumps(memtable.data)  # 将MemTable的数据序列化
-            file.write(serialized_data)  # 将序列化后的数据写入文件
+    def _init_wal_file(self):
+        """创建或打开WAL文件。如果文件不存在，则创建一个空文件。"""
+        if not os.path.exists(self.wal_file):
+            with open(self.wal_file, 'wb') as file:
+                pass
 
-    def recover_memtable(self) -> MemTable:
-        # 从WAL恢复key-value对并重构MemTable
-        with open(self.log_file_path, 'rb') as file:  # 以二进制读取模式打开文件
-            serialized_data = file.read()  # 读取序列化的数据
-            data = pickle.loads(serialized_data)  # 反序列化数据
-            memtable = MemTable()  # 创建MemTable对象
-            memtable.data = data  # 将反序列化的数据赋给MemTable
-            return memtable  # 返回重构后的MemTable
+    def append_to_wal(self, operation: str, data: [KeyValue]):
+        """将操作及其关联数据追加到WAL。以二进制追加模式打开文件，并将条目序列化后追加到文件中。"""
+        with open(self.wal_file, 'ab') as file:
+            entry = (operation, data)
+            pickle.dump(entry, file)
+
+    def load_wal(self) -> [(str, [KeyValue])]:
+        """从WAL加载所有操作和数据。通过反序列化文件内容来加载所有条目，并返回操作列表。"""
+        operations = []
+        with open(self.wal_file, 'rb') as file:
+            try:
+                while True:
+                    entry = pickle.load(file)
+                    operations.append(entry)
+            except EOFError:
+                pass
+        return operations
+
+    def clear_wal(self):
+        """清空WAL文件。以二进制写入模式打开文件，并立即关闭，从而清空文件内容。"""
+        with open(self.wal_file, 'wb') as file:
+            pass
+
