@@ -50,12 +50,16 @@ class MemTable:
                 self.data = {k: KeyValue.deserialize(v) for k, v in data.items()}
         except FileNotFoundError:  # 捕获文件未找到错误
             print(f"Log file {log_path} not found. Starting with an empty MemTable.")  # 打印错误消息
-
 class SSTable:
+    DELETED_MARKER = object()  # 定义已删除键的特殊标记
     def __init__(self, filename):
        self.filename = filename
        self.file = open(filename, 'wb')  # 注意 'wb' 模式，以二进制写入
        self.index = {}  # 索引字典，用于存储键的位置和长度
+
+    def mark_deleted(self, key: str):
+        """将给定的键标记为已删除。"""
+        self.data[key] = SSTable.DELETED_MARKER  # 使用已删除键的特殊标记
 
     def write_from_memtable(self, memtable_data: Dict[str, KeyValue]):
     # 将memtable_data按键排序
