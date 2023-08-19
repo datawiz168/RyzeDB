@@ -2,6 +2,9 @@ import json
 from typing import Any
 
 class KeyValue:
+    def serialize(self) -> dict:
+        return {'key': self.key, 'value': self.value}
+
     def __init__(self, key: Any, value: Any):
         # 构造函数，用于创建键值对对象
         # key: 键，可以是任何可哈希的类型
@@ -54,15 +57,21 @@ class KeyValue:
 
     @staticmethod
     def deserialize(serialized: str) -> 'KeyValue':
-        # 静态方法，从JSON字符串创建KeyValue对象
-        # serialized: 表示键值对的JSON字符串
-        # 返回: 新创建的KeyValue对象
-        # 如果字符串不是有效的JSON或缺少键或值，则抛出ValueError异常
         try:
+            # 尝试将输入的字符串解析为JSON对象
+            # serialized参数应该是一个包含键和值的JSON字符串
             data = json.loads(serialized)
+
+            # 从解析后的JSON对象中提取键和值
+            # 并使用它们创建一个新的KeyValue对象
+            # 然后返回这个新对象
             return KeyValue(data["key"], data["value"])
         except json.JSONDecodeError:
+            # 如果输入的字符串不是有效的JSON格式
+            # 则抛出ValueError异常，并附带解释信息
             raise ValueError("Invalid serialized string") from None
         except KeyError:
+            # 如果解析后的JSON对象缺少键或值
+            # 则抛出ValueError异常，并附带解释信息
             raise ValueError("Missing key or value in serialized string") from None
 

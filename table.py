@@ -1,8 +1,10 @@
-from data_model import KeyValue  # 从data_model模块导入KeyValue类
-import json  # 导入JSON库，用于序列化和反序列化字典
-import threading  # 导入线程库，用于同步操作
-from typing import Optional  # 导入Optional类型，用于类型注解
-from typing import List  #List是Python的类型注解之一，用于指定一个列表，列表中的元素类型可以进一步指定。
+from data_model import KeyValue  # 从data_model模块导入KeyValue类，用于表示键值对
+import json  # 导入JSON库，用于序列化和反序列化字典，以便在文件或网络传输中存储和恢复字典结构
+import threading  # 导入线程库，用于同步操作，确保多线程环境下的数据一致性和线程安全
+from typing import Optional  # 导入Optional类型，用于类型注解，表示一个类型可以是None
+from typing import List  # 导入List类型，用于类型注解，表示列表类型
+from typing import Dict  # 导入Dict类型，用于类型注解，表示字典类型
+
 
 class MemTable:
     def __init__(self, threshold: int = 1000):
@@ -26,11 +28,19 @@ class MemTable:
                 del self.data[key]  # 如果存在，则删除
 
     def compact(self):
-        with self.lock:  # 获取锁，确保线程安全
-            with open('memtable.json', 'w') as file:  # 打开文件以写入
-                # 使用键值对的serialize方法将字典写入文件
-                json.dump({k: v.serialize() for k, v in self.data.items()}, file)
-            self.data.clear()  # 清空字典
+        print("Starting compact...")  # 打印开始压缩的消息
+        print("Opening file 'memtable.json' for writing...")  # 打印正在打开文件的消息
+        with open('memtable.json', 'w') as file:  # 以写入模式打开名为'memtable.json'的文件，确保文件在操作完成后被关闭
+            print("File opened successfully.")  # 打印文件成功打开的消息
+            print("Dumping data to file...")  # 打印正在将数据转储到文件的消息
+            # 使用列表推导式将MemTable中的键值对序列化为JSON对象
+            serialized_data = {k: v.serialize() for k, v in self.data.items()}
+            # 将序列化后的数据以JSON格式写入文件
+            json.dump(serialized_data, file)
+            print("Data dumped to file.")  # 打印数据已转储到文件的消息
+        print("Clearing MemTable...")  # 打印正在清空MemTable的消息
+        self.data.clear()  # 清空MemTable中的数据
+        print("MemTable cleared.")  # 打印MemTable已清空的消息
 
     def recover(self, log_path: str):
         try:  # 尝试打开文件
@@ -42,20 +52,21 @@ class MemTable:
             print(f"Log file {log_path} not found. Starting with an empty MemTable.")  # 打印错误消息
 
 class SSTable:
-    def __init__(self, path: str):
-        self.path = path  # SSTable文件的路径
-        self.file = open(path, 'wb')  # 以二进制写入模式打开文件
-        self.index = {}  # 索引字典，用于存储键的位置和长度
+    def __init__(self, filename):
+       self.filename = filename
+       self.file = open(filename, 'wb')  # 注意 'wb' 模式，以二进制写入
+       self.index = {}  # 索引字典，用于存储键的位置和长度
 
-    def write_from_memtable(self, memtable):
-        # 获取并排序MemTable的数据
-        data = sorted(memtable.data.items(), key=lambda x: x[0])
+    def write_from_memtable(self, memtable_data: Dict[str, KeyValue]):
+    # 将memtable_data按键排序
+        data = sorted(memtable_data.items(), key=lambda x: x[0])
         # 写入数据区域并创建索引
         for key, value in data:
             position = self.file.tell()  # 获取当前文件位置
-            serialized_value = json.dumps({'key': key, 'value': value})
-            self.file.write(serialized_value.encode('utf-8'))  # 写入序列化的值
-            self.index[key] = (position, len(serialized_value))  # 添加索引
+            serialized_value = value.serialize()  # 使用KeyValue的serialize方法
+            serialized_value_bytes = serialized_value.encode('utf-8')  # 将序列化的值转为字节串
+            self.file.write(serialized_value_bytes)  # 写入序列化的值
+            self.index[key] = (position, len(serialized_value_bytes))  # 添加索引
         # 写入索引区域
         index_position = self.file.tell()
         serialized_index = json.dumps(self.index)
@@ -67,6 +78,25 @@ class SSTable:
         }
         self.file.write(json.dumps(metadata).encode('utf-8'))
         self.file.close()  # 关闭文件
+
+    def get(self, key: str) -> Optional[KeyValue]:
+        # 打开文件
+        self.file = open(self.filename, 'rb')
+
+        if key in self.index:
+            # 读取索引
+            position, length = self.index[key]
+            # 定位到文件中的正确位置
+            self.file.seek(position)
+            # 读取序列化的值（字节串）
+            serialized_value_bytes = self.file.read(length)
+            # 解码为字符串
+            serialized_value_str = serialized_value_bytes.decode('utf-8')
+            # 使用KeyValue的deserialize方法还原对象
+            return KeyValue.deserialize(serialized_value_str)
+
+        self.file.close()  # 关闭文件
+        return None
 
     def read(self, key: str) -> Optional[str]:
         self.file = open(self.path, 'rb')  # 重新以二进制读取模式打开文件
@@ -81,27 +111,39 @@ class SSTable:
         return None
 
     def _read_metadata(self):
-        self.file.seek(-256, 2)  # 跳转到元数据区域的起始位置，假设元数据区域固定为256字节
+        # 跳转到文件的末尾前256个字节，即元数据区域的起始位置
+        self.file.seek(-256, 2)
+        # 读取256字节的元数据
         metadata_bytes = self.file.read(256)
+        # 将字节解码为UTF-8字符串，并解析为JSON对象
         metadata = json.loads(metadata_bytes.decode('utf-8'))
+        # 返回索引位置和索引长度
         return metadata['index_position'], metadata['index_length']
 
     def _read_index(self, index_position: int, index_length: int):
+        # 跳转到索引位置
         self.file.seek(index_position)
+        # 读取指定长度的索引字节
         index_bytes = self.file.read(index_length)
+        # 将字节解码为UTF-8字符串，并解析为JSON对象
         index = json.loads(index_bytes.decode('utf-8'))
+        # 返回索引
         return index
 
     def _read_data(self, position: int, length: int):
+        # 跳转到指定位置
         self.file.seek(position)
+        # 读取指定长度的数据字节
         data_bytes = self.file.read(length)
+        # 将字节解码为UTF-8字符串，并解析为JSON对象
+        # 返回值字段
         return json.loads(data_bytes.decode('utf-8'))['value']
 
     @staticmethod
     def merge(sstables: List['SSTable'], output_path: str):
         # 创建一个新的SSTable用于输出
         output_sstable = SSTable(output_path)
-        # 读取所有输入SSTables的数据
+        # 用于存储所有输入SSTables的数据
         all_data = []
         for sstable in sstables:
             sstable.file = open(sstable.path, 'rb')  # 重新打开文件以读取
@@ -109,7 +151,7 @@ class SSTable:
             index = sstable._read_index(index_position, index_length)
             for key, (position, length) in index.items():
                 value = sstable._read_data(position, length)
-                all_data.append((key, value))
+                all_data.append((key, value))  # 收集所有数据
             sstable.file.close()
         # 按键排序
         all_data.sort(key=lambda x: x[0])
@@ -118,16 +160,5 @@ class SSTable:
         for key, value in all_data:
             if key != last_key:
                 output_sstable.write_from_memtable({key: value})
-                last_key = key
-        output_sstable.file.close()
-
-
-
-# 示例代码
-memtable = MemTable(threshold=3)  # 创建MemTable对象，并设置阈值为3
-memtable.put('name', KeyValue('name', 'Alice'))  # 插入键值对
-memtable.put('age', KeyValue('age', '30'))  # 插入键值对
-print(memtable.get('name'))  # 获取并打印值
-memtable.put('city', KeyValue('city', 'New York'))  # 插入键值对，触发compact
-memtable.recover('memtable.json')  # 从文件恢复数据
-print(memtable.get('name'))  # 获取并打印恢复后的值
+                last_key = key  # 更新上一个键
+        output_sstable.file.close()  # 关闭文件
