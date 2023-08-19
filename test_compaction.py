@@ -1,48 +1,44 @@
-import unittest  # 导入unittest库，用于创建和运行测试用例
-from compaction import CompactionStrategy  # 从compaction模块导入CompactionStrategy类，用于测试
-import os  # 导入os库，用于文件路径和文件操作
+# 导入unittest库，用于编写和运行测试用例
+import unittest
+# 导入os库，用于文件操作，如删除文件
+import os
+# 导入要测试的类CompactionStrategy
+from compaction import CompactionStrategy
 
-
+# 创建测试CompactionStrategy类的测试类
 class TestCompactionStrategy(unittest.TestCase):
-
+    # 在每个测试用例运行之前执行，用于设置测试环境
     def setUp(self):
-        # 在测试开始前，创建一些测试文件
-        # 这些文件将用于合并和压缩测试
-        self.test_files = ["file1.txt", "file2.txt", "file3.txt"]
-        for file_name in self.test_files:
-            with open(file_name, 'w') as file:
-                file.write(file_name)
+        # 要合并的文件列表
+        self.files_to_merge = ["file1.txt", "file2.txt"]
+        # 创建这些文件并写入内容
+        for file_path in self.files_to_merge:
+            with open(file_path, 'wb') as file:
+                file.write(file_path.encode('utf-8'))
+        # 创建一个合并阈值为2的CompactionStrategy对象
+        self.compaction_strategy = CompactionStrategy(merge_threshold=2)
 
-        # 创建合并和压缩策略实例
-        # 用于测试文件合并和压缩功能
-        self.compaction_strategy = CompactionStrategy(merge_threshold=2, compression_level=5)
-
-    def test_should_merge(self):
-        # 测试合并阈值是否正常工作
-        # 测试当文件数量低于阈值和高于阈值时的返回值
-        self.assertFalse(self.compaction_strategy.should_merge(file_count=1))
-        self.assertTrue(self.compaction_strategy.should_merge(file_count=3))
-
-    def test_merge_files(self):
-        # 测试文件合并
-        # 验证合并后的文件是否存在
-        merged_file = self.compaction_strategy.merge_files(self.test_files)
-        self.assertTrue(os.path.exists(merged_file))
-
-    def test_compress_file(self):
-        # 测试文件压缩
-        # 验证压缩后的文件是否存在
-        compressed_file = self.compaction_strategy.compress_file(self.test_files[0])
-        self.assertTrue(os.path.exists(compressed_file))
-
+    # 在每个测试用例运行之后执行，用于清理测试环境
     def tearDown(self):
-        # 在测试结束后，删除创建的测试文件
-        # 清理测试环境
-        for file_name in self.test_files + ["merged_file.txt", "file1.txt.gz"]:
-            if os.path.exists(file_name):
-                os.remove(file_name)
+        # 删除创建的文件
+        for file_path in self.files_to_merge:
+            os.remove(file_path)
+        os.remove("merged_file.txt")
 
+    # 测试文件合并功能
+    def test_merge_files(self):
+        # 调用合并文件方法
+        merged_file_path = self.compaction_strategy.merge_files(self.files_to_merge)
+        # 获取原始文件内容
+        original_content = b""
+        for file_path in self.files_to_merge:
+            with open(file_path, 'rb') as file:
+                original_content += file.read()
+        # 获取合并后文件的内容
+        compressed_content = self.compaction_strategy.decompress_file(merged_file_path)
+        # 断言合并后的内容与原始内容相同
+        self.assertEqual(compressed_content, original_content)
 
+# 如果直接运行此脚本，则执行测试
 if __name__ == "__main__":
-    # 如果直接运行此脚本，则运行测试
     unittest.main()
