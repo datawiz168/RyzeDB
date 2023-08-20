@@ -27,6 +27,9 @@ class MemTable:
             if key in self.data:  # 检查键是否存在
                 del self.data[key]  # 如果存在，则删除
 
+    def get_data_as_kv_pairs(self):
+        return self.data
+
     def compact(self):
         print("Starting compact...")  # 打印开始压缩的消息
         print("Opening file 'memtable.json' for writing...")  # 打印正在打开文件的消息
@@ -52,55 +55,55 @@ class MemTable:
             print(f"Log file {log_path} not found. Starting with an empty MemTable.")  # 打印错误消息
 class SSTable:
     DELETED_MARKER = object()  # 定义已删除键的特殊标记
+
     def __init__(self, filename):
-       self.filename = filename
-       self.file = open(filename, 'wb')  # 注意 'wb' 模式，以二进制写入
-       self.index = {}  # 索引字典，用于存储键的位置和长度
+        self.filename = filename
+        self.file = open(filename, 'wb')  # 注意 'wb' 模式，以二进制写入
+        self.index = {}  # 索引字典，用于存储键的位置和长度
+        self.is_closed = False  # 初始化文件状态为未关闭
+
+    def get(self, key: str) -> Optional[KeyValue]:
+        with open(self.filename, 'rb') as file:  # 使用 'with' 语句来管理文件的打开和关闭
+            if key in self.index:
+                # 读取索引
+                position, length = self.index[key]
+                # 定位到文件中的正确位置
+                file.seek(position)
+                # 读取序列化的值（字节串）
+                serialized_value_bytes = file.read(length)
+                # 解码为字符串
+                serialized_value_str = serialized_value_bytes.decode('utf-8')
+                # 使用KeyValue的deserialize方法还原对象
+                return KeyValue.deserialize(serialized_value_str)
+        return None
+
+    def close(self):
+        self.file.close()
+        self.is_closed = True  # 标记文件已关闭
 
     def mark_deleted(self, key: str):
         """将给定的键标记为已删除。"""
-        self.data[key] = SSTable.DELETED_MARKER  # 使用已删除键的特殊标记
-
+        self.index[key] = SSTable.DELETED_MARKER  # 使用已删除键的特殊标记
     def write_from_memtable(self, memtable_data: Dict[str, KeyValue]):
-    # 将memtable_data按键排序
+        if self.is_closed:
+            raise Exception("File is closed. Cannot write to SSTable.")
         data = sorted(memtable_data.items(), key=lambda x: x[0])
-        # 写入数据区域并创建索引
         for key, value in data:
-            position = self.file.tell()  # 获取当前文件位置
-            serialized_value = value.serialize()  # 使用KeyValue的serialize方法
-            serialized_value_bytes = serialized_value.encode('utf-8')  # 将序列化的值转为字节串
-            self.file.write(serialized_value_bytes)  # 写入序列化的值
-            self.index[key] = (position, len(serialized_value_bytes))  # 添加索引
-        # 写入索引区域
+            position = self.file.tell()
+            serialized_value = value.serialize()
+            serialized_value_bytes = serialized_value.encode('utf-8')
+            self.file.write(serialized_value_bytes)
+            self.index[key] = (position, len(serialized_value_bytes))
         index_position = self.file.tell()
         serialized_index = json.dumps(self.index)
         self.file.write(serialized_index.encode('utf-8'))
-        # 写入元数据区域
-        metadata = {
-            'index_position': index_position,
-            'index_length': len(serialized_index)
-        }
+        metadata = {'index_position': index_position, 'index_length': len(serialized_index)}
         self.file.write(json.dumps(metadata).encode('utf-8'))
-        self.file.close()  # 关闭文件
+        self.file.close()
+        self.is_closed = True
 
-    def get(self, key: str) -> Optional[KeyValue]:
-        # 打开文件
-        self.file = open(self.filename, 'rb')
-
-        if key in self.index:
-            # 读取索引
-            position, length = self.index[key]
-            # 定位到文件中的正确位置
-            self.file.seek(position)
-            # 读取序列化的值（字节串）
-            serialized_value_bytes = self.file.read(length)
-            # 解码为字符串
-            serialized_value_str = serialized_value_bytes.decode('utf-8')
-            # 使用KeyValue的deserialize方法还原对象
-            return KeyValue.deserialize(serialized_value_str)
-
-        self.file.close()  # 关闭文件
-        return None
+    def __del__(self):
+        self.close()
 
     def read(self, key: str) -> Optional[str]:
         self.file = open(self.path, 'rb')  # 重新以二进制读取模式打开文件

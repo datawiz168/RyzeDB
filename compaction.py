@@ -2,8 +2,9 @@
 import snappy
 # 导入类型提示库，以便在函数签名中使用类型提示
 from typing import List
-
+from table import MemTable, SSTable
 # 创建CompactionStrategy类，用于管理文件的合并和压缩
+
 class CompactionStrategy:
     # 构造函数，初始化合并阈值
     def __init__(self, merge_threshold: int):
@@ -12,6 +13,21 @@ class CompactionStrategy:
         :param merge_threshold: 合并阈值，当文件数量达到此阈值时触发合并。
         """
         self.merge_threshold = merge_threshold
+
+    def needs_compaction(self, memtable, sstable):
+        # 例如，如果 MemTable 的大小大于某个阈值，则可能需要压缩
+        return len(memtable.data) > self.merge_threshold
+
+    def compact(self, memtable: MemTable, sstable: SSTable):
+        print("Starting compact...")  # 打印开始压缩的消息，标志压缩过程开始
+        memtable_data = memtable.get_data_as_kv_pairs()  # 从内存表(memtable)中获取数据作为键值对列表
+        sorted_data = sorted(memtable_data, key=lambda x: x[0])  # 对内存表中的数据按键排序
+        temp_memtable = MemTable()  # 创建一个临时的内存表来存储排序后的数据
+        for key, kv_obj in sorted_data:  # 遍历排序后的数据
+            temp_memtable.put(key, kv_obj)  # 将每个键值对放入临时内存表中
+        sstable.write_from_memtable(temp_memtable)  # 将临时内存表的内容写入SSTable(磁盘表)
+        memtable.clear()  # 清空原始内存表的内容，完成压缩过程
+        print("Compaction completed.")  # 打印压缩完成的消息
 
     # 判断是否应该合并文件
     def should_merge(self, file_count: int) -> bool:
